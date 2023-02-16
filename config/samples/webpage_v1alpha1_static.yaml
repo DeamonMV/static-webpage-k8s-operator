@@ -1,0 +1,12 @@
+apiVersion: webpage.daemon.io/v1alpha1
+kind: Static
+metadata:
+  labels:
+    app.kubernetes.io/name: static
+    app.kubernetes.io/instance: static-sample
+    app.kubernetes.io/part-of: static-webpage-k8s-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: static-webpage-k8s-operator
+  name: static-sample
+spec:
+  # TODO(user): Add fields here
