@@ -47,6 +47,7 @@ const (
 	typeAvailableWebpage = "Available"
 	// typeDegradedWebpage represents the status used when the custom resource is deleted and the finalizer operations are must to occur.
 	typeDegradedWebpage = "Degraded"
+	typeUnknownWebpage  = "Unknown"
 )
 
 // StaticReconciler reconciles a Static object
@@ -106,21 +107,27 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Let's just set the status as Unknown when no status are available
 	if webpage.Status.Conditions == nil || len(webpage.Status.Conditions) == 0 {
-		meta.SetStatusCondition(&webpage.Status.Conditions, metav1.Condition{Type: typeAvailableWebpage, Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reconciliation"})
+		meta.SetStatusCondition(
+			&webpage.Status.Conditions, metav1.Condition{
+				Type:    typeUnknownWebpage,
+				Status:  metav1.ConditionUnknown,
+				Reason:  "Reconciling",
+				Message: "Starting reconciliation",
+			})
 		if err = r.Status().Update(ctx, webpage); err != nil {
 			log.Error(err, "Failed to update webpage status")
 			return ctrl.Result{}, err
 		}
+	}
 
-		// Let's re-fetch the webpage Custom Resource after update the status
-		// so that we have the latest state of the resource on the cluster, and we will avoid
-		// raise the issue "the object has been modified, please apply
-		// your changes to the latest version and try again" which would re-trigger the reconciliation
-		// if we try to update it again in the following operations
-		if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
-			log.Error(err, "Failed to re-fetch webapge")
-			return ctrl.Result{}, err
-		}
+	// Let's re-fetch the webpage Custom Resource after update the status
+	// so that we have the latest state of the resource on the cluster, and we will avoid
+	// raise the issue "the object has been modified, please apply
+	// your changes to the latest version and try again" which would re-trigger the reconciliation
+	// if we try to update it again in the following operations
+	if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
+		log.Error(err, "Failed to re-fetch webapge")
+		return ctrl.Result{}, err
 	}
 
 	// Let's add a finalizer. Then, we can define some operations which should
@@ -128,16 +135,6 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers
 	if !controllerutil.ContainsFinalizer(webpage, webpageFinalizer) {
 		log.Info("Adding Finalizer for Webpage")
-
-		// Let's re-fetch the webpage Custom Resource after update the status
-		// so that we have the latest state of the resource on the cluster, and we will avoid
-		// raise the issue "the object has been modified, please apply
-		// your changes to the latest version and try again" which would re-trigger the reconciliation
-		// if we try to update it again in the following operations
-		if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
-			log.Error(err, "Failed to re-fetch webapge")
-			return ctrl.Result{}, err
-		}
 
 		if ok := controllerutil.AddFinalizer(webpage, webpageFinalizer); !ok {
 			log.Error(err, "Failed to add finalizer into the custom resource")
@@ -150,6 +147,14 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
+	// Re-fetch the webpage Custom Resource before update the status
+	// so that we have the latest state of the resource on the cluster, and we will avoid
+	// raise the issue "the object has been modified, please apply
+	// your changes to the latest version and try again" which would re-trigger the reconciliation
+	if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
+		log.Error(err, "Failed to re-fetch webpage")
+		return ctrl.Result{}, err
+	}
 	// Check if the Webpage instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set.
 	isWebpageMarkedToBeDeleted := webpage.GetDeletionTimestamp() != nil
@@ -158,18 +163,24 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			log.Info("Performing Finalizer Operations for Webpage before delete CR")
 
 			// Let's add here a status "Downgrade" to define that this resource begin its process to be terminated.
-			meta.SetStatusCondition(&webpage.Status.Conditions, metav1.Condition{Type: typeDegradedWebpage,
-				Status: metav1.ConditionUnknown, Reason: "Finalizing",
-				Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", webpage.Name)})
+			meta.SetStatusCondition(
+				&webpage.Status.Conditions,
+				metav1.Condition{
+					Type:    typeDegradedWebpage,
+					Status:  metav1.ConditionUnknown,
+					Reason:  "Finalizing",
+					Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", webpage.Name),
+				})
 
 			if err := r.Status().Update(ctx, webpage); err != nil {
 				log.Error(err, "Failed to update Webpage status")
 				return ctrl.Result{}, err
 			}
-
 			// Perform all operations required before remove the finalizer and allow
 			// the Kubernetes API to remove the custom resource.
-			r.doFinalizerOperationsForWebpage(webpage)
+			r.doFinalizerOperationsForWebpage(ctx, webpage)
+
+			// The following implementation will raise an event
 
 			// TODO(user): If you add operations to the doFinalizerOperationsForWebpage method
 			// then you need to ensure that all worked fine before deleting and updating the Downgrade status
@@ -184,9 +195,14 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				return ctrl.Result{}, err
 			}
 
-			meta.SetStatusCondition(&webpage.Status.Conditions, metav1.Condition{Type: typeDegradedWebpage,
-				Status: metav1.ConditionTrue, Reason: "Finalizing",
-				Message: fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", webpage.Name)})
+			meta.SetStatusCondition(
+				&webpage.Status.Conditions,
+				metav1.Condition{
+					Type:   typeDegradedWebpage,
+					Status: metav1.ConditionTrue, Reason: "Finalizing",
+					Message: fmt.Sprintf(
+						"Finalizer operations for custom resource %s name were successfully accomplished", webpage.Name),
+				})
 
 			if err := r.Status().Update(ctx, webpage); err != nil {
 				log.Error(err, "Failed to update webpage status")
@@ -210,19 +226,24 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Check if the deployment already exists, if not create a new one
 	found := &appsv1.Deployment{}
 	err = r.Get(ctx, types.NamespacedName{Name: webpage.Name, Namespace: webpage.Namespace}, found)
-	if err != nil && apierrors.IsNotFound(err) {
+	if err != nil && apierrors.IsNotFound(err) && !meta.IsStatusConditionTrue(webpage.Status.Conditions, typeDegradedWebpage) {
 		// Define a new deployment
 		dep, err := r.deploymentForWebpage(webpage)
 		if err != nil {
 			log.Error(err, "Failed to define new Deployment resource for Webpage")
 
 			// The following implementation will update the status
-			meta.SetStatusCondition(&webpage.Status.Conditions, metav1.Condition{Type: typeAvailableWebpage,
-				Status: metav1.ConditionFalse, Reason: "Reconciling",
-				Message: fmt.Sprintf("Failed to create Deployment for the custom resource (%s): (%s)", webpage.Name, err)})
+			meta.SetStatusCondition(
+				&webpage.Status.Conditions,
+				metav1.Condition{
+					Type:   typeAvailableWebpage,
+					Status: metav1.ConditionFalse, Reason: "Reconciling",
+					Message: fmt.Sprintf(
+						"Failed to create Deployment for the custom resource (%s): (%s)", webpage.Name, err),
+				})
 
 			if err := r.Status().Update(ctx, webpage); err != nil {
-				log.Error(err, "Failed to update Memcached status")
+				log.Error(err, "Failed to update Webpage status")
 				return ctrl.Result{}, err
 			}
 
@@ -231,6 +252,16 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 		log.Info("Creating a new Deployment",
 			"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
+
+		// Re-fetch the webpage Custom Resource before update the status
+		// so that we have the latest state of the resource on the cluster, and we will avoid
+		// raise the issue "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
+			log.Error(err, "Failed to re-fetch webpage")
+			return ctrl.Result{}, err
+		}
+
 		if err = r.Create(ctx, dep); err != nil {
 			log.Error(err, "Failed to create new Deployment",
 				"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
@@ -263,23 +294,22 @@ func (r *StaticReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // finalizeWebpage will perform the required operations before delete the CR.
-func (r *StaticReconciler) doFinalizerOperationsForWebpage(cr *webpagev1alpha1.Static) {
+func (r *StaticReconciler) doFinalizerOperationsForWebpage(ctx context.Context, cr *webpagev1alpha1.Static) {
+	log := log.FromContext(ctx)
 	// TODO(user): Add the cleanup steps that the operator
 	// needs to do before the CR can be deleted. Examples
 	// of finalizers include performing backups and deleting
 	// resources that are not owned by this CR, like a PVC.
-
+	log.Info("Do some finalization")
 	// Note: It is not recommended to use finalizers with the purpose of delete resources which are
 	// created and managed in the reconciliation. These ones, such as the Deployment created on this reconcile,
 	// are defined as depended of the custom resource. See that we use the method ctrl.SetControllerReference.
 	// to set the ownerRef which means that the Deployment will be deleted by the Kubernetes API.
 	// More info: https://kubernetes.io/docs/tasks/administer-cluster/use-cascading-deletion/
-
-	// The following implementation will raise an event
+	//log.Info("Before Event message")
+	// TODO https://github.com/DeamonMV/static-webpage-k8s-operator/issues/1
 	r.Recorder.Event(cr, "Warning", "Deleting",
-		fmt.Sprintf("Custom Resource %s is being deleted from the namespace %s",
-			cr.Name,
-			cr.Namespace))
+		fmt.Sprintf("Custom Resource %s is being deleted from the namespace %s", cr.Name, cr.Namespace))
 }
 
 // deploymentForWebpage returns a Webpage Deployment object
@@ -341,7 +371,7 @@ func (r *StaticReconciler) deploymentForWebpage(webpage *webpagev1alpha1.Static)
 					},
 					Containers: []corev1.Container{{
 						Image:           webpage.Spec.Nginx,
-						Name:            "webpage",
+						Name:            "nginx",
 						ImagePullPolicy: corev1.PullAlways,
 						// Ensure restrictive context for the container
 						// More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
@@ -391,10 +421,10 @@ func labelsForWebpage(name string, webpage *webpagev1alpha1.Static) map[string]s
 	imageTag := strings.Split(image, ":")[1]
 
 	return map[string]string{
-		"app.kubernetes.io/name":       "Webpage",
-		"app.kubernetes.io/instance":   name,
-		"app.kubernetes.io/version":    imageTag,
-		"app.kubernetes.io/part-of":    "static-webpage-operator",
-		"app.kubernetes.io/created-by": "controller-manager",
+		"app.kubernetes.io/name":          "Webpage",
+		"app.kubernetes.io/instance":      name,
+		"app.kubernetes.io/nginx-version": imageTag,
+		"app.kubernetes.io/part-of":       "static-webpage-operator",
+		"app.kubernetes.io/created-by":    "controller-manager",
 	}
 }
