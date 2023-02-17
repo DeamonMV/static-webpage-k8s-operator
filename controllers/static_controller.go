@@ -67,6 +67,7 @@ type StaticReconciler struct {
 //+kubebuilder:rbac:groups=webpage.daemon.io,resources=statics/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -225,9 +226,9 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Check if the deployment already exists, if not create a new one
-	found := &appsv1.Deployment{}
-	err = r.Get(ctx, types.NamespacedName{Name: webpage.Name, Namespace: webpage.Namespace}, found)
-	if err != nil && apierrors.IsNotFound(err) && !meta.IsStatusConditionTrue(webpage.Status.Conditions, typeDegradedWebpage) {
+	founddep := &appsv1.Deployment{}
+	err = r.Get(ctx, types.NamespacedName{Name: webpage.Name, Namespace: webpage.Namespace}, founddep)
+	if err != nil && apierrors.IsNotFound(err) {
 		// Define a new deployment
 		dep, err := r.deploymentForWebpage(webpage)
 		if err != nil {
@@ -275,6 +276,60 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	} else if err != nil {
 		log.Error(err, "Failed to get Deployment")
+		// Let's return the error for the reconciliation be re-trigged again
+		return ctrl.Result{}, err
+	}
+
+	foundsvc := &corev1.Service{}
+	err = r.Get(ctx, types.NamespacedName{Name: webpage.Name, Namespace: webpage.Namespace}, foundsvc)
+	if err != nil && apierrors.IsNotFound(err) {
+		// Define a new Service
+		svc, err := r.serviceForWebpage(webpage)
+		if err != nil {
+			log.Error(err, "Failed to define new Service resource for Webpage")
+
+			// The following implementation will update the status
+			meta.SetStatusCondition(
+				&webpage.Status.Conditions,
+				metav1.Condition{
+					Type:   typeAvailableWebpage,
+					Status: metav1.ConditionFalse, Reason: "Reconciling",
+					Message: fmt.Sprintf(
+						"Failed to create Service for the custom resource (%s): (%s)", webpage.Name, err),
+				})
+
+			if err := r.Status().Update(ctx, webpage); err != nil {
+				log.Error(err, "Failed to update Webpage status")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Creating a new Service",
+			"Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
+
+		// Re-fetch the webpage Custom Resource before update the status
+		// so that we have the latest state of the resource on the cluster, and we will avoid
+		// raise the issue "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
+			log.Error(err, "Failed to re-fetch webpage")
+			return ctrl.Result{}, err
+		}
+
+		if err = r.Create(ctx, svc); err != nil {
+			log.Error(err, "Failed to create new Service",
+				"Service.Namespace", svc.Namespace, "Service.Name", svc.Name)
+			return ctrl.Result{}, err
+		}
+
+		// Deployment created successfully
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	} else if err != nil {
+		log.Error(err, "Failed to get Service")
 		// Let's return the error for the reconciliation be re-trigged again
 		return ctrl.Result{}, err
 	}
@@ -436,6 +491,33 @@ func (r *StaticReconciler) deploymentForWebpage(webpage *webpagev1alpha1.Static)
 		return nil, err
 	}
 	return dep, nil
+}
+
+func (r *StaticReconciler) serviceForWebpage(webpage *webpagev1alpha1.Static) (*corev1.Service, error) {
+	ls := labelsForWebpage(webpage.Name, webpage)
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      webpage.Name,
+			Namespace: webpage.Namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{
+				Name:     "webpage",
+				Protocol: "TCP",
+				Port:     80,
+			}},
+			Selector: ls,
+			Type:     "ClusterIP",
+		},
+	}
+
+	// Set the ownerRef for the Service
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/
+	if err := ctrl.SetControllerReference(webpage, svc, r.Scheme); err != nil {
+		return nil, err
+	}
+	return svc, nil
 }
 
 func labelsForWebpage(name string, webpage *webpagev1alpha1.Static) map[string]string {
