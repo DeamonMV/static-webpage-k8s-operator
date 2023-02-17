@@ -23,6 +23,16 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// spec:
+//	size: 1
+//  containerPort: 80
+//   nginx:
+//     image: nginx:latest
+//     command: nginx
+//   git:
+//     image: git-alpine:latest
+//     branch: master
+
 // StaticSpec defines the desired state of Static
 type StaticSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -36,13 +46,22 @@ type StaticSpec struct {
 
 	// Size define the number of Webpage instances
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
-	Size  int32  `json:"size,omitempty"`
-	Nginx string `json:"nginx,omitempty"`
-	Git   string `json:"git,omitempty"`
-
+	Size int32 `json:"size,omitempty"`
 	// Port defines the port that will be used to init the container with the image
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
-	ContainerPort int32 `json:"containerPort,omitempty"`
+	ContainerPort   int32 `json:"containerPort,omitempty"`
+	StaticSpecNginx `json:"nginx,omitempty"`
+	StaticSpecGit   `json:"git,omitempty"`
+}
+
+type StaticSpecNginx struct {
+	Image string `json:"image,omitempty"`
+}
+
+type StaticSpecGit struct {
+	Image      string `json:"image,omitempty"`
+	Repository string `json:"repository,omitempty"`
+	Branch     string `json:"branch,omitempty"`
 }
 
 // StaticStatus defines the observed state of Static

@@ -41,9 +41,19 @@ spec:
                 format: int32
                 type: integer
               git:
-                type: string
+                properties:
+                  branch:
+                    type: string
+                  image:
+                    type: string
+                  repository:
+                    type: string
+                type: object
               nginx:
-                type: string
+                properties:
+                  image:
+                    type: string
+                type: object
               size:
                 description: Size define the number of Webpage instances
                 format: int32
