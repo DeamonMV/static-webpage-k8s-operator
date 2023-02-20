@@ -47,8 +47,9 @@ const (
 	// typeAvailableWebpage represents the status of the Deployment reconciliation
 	typeAvailableWebpage = "Available"
 	// typeDegradedWebpage represents the status used when the custom resource is deleted and the finalizer operations are must to occur.
-	typeDegradedWebpage = "Degraded"
-	typeUnknownWebpage  = "Unknown"
+	typeDegradedWebpage  = "Degraded"
+	typeDeployingWebpage = "Deploying"
+	typeUnknownWebpage   = "Unknown"
 )
 
 // StaticReconciler reconciles a Static object
@@ -89,7 +90,6 @@ type StaticReconciler struct {
 
 func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-
 	// Fetch the Webpage instance
 	// The purpose is check if the Custom Resource for the Kind Webpage
 	// is applied on the cluster if not we return nil to stop the reconciliation
@@ -106,7 +106,6 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Error(err, "Failed to get webpage")
 		return ctrl.Result{}, err
 	}
-
 	// Let's just set the status as Unknown when no status are available
 	if webpage.Status.Conditions == nil || len(webpage.Status.Conditions) == 0 {
 		meta.SetStatusCondition(
@@ -120,16 +119,14 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			log.Error(err, "Failed to update webpage status")
 			return ctrl.Result{}, err
 		}
-	}
-
-	// Let's re-fetch the webpage Custom Resource after update the status
-	// so that we have the latest state of the resource on the cluster, and we will avoid
-	// raise the issue "the object has been modified, please apply
-	// your changes to the latest version and try again" which would re-trigger the reconciliation
-	// if we try to update it again in the following operations
-	if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
-		log.Error(err, "Failed to re-fetch webapge")
-		return ctrl.Result{}, err
+		// Re-fetch the webpage Custom Resource before update the status
+		// so that we have the latest state of the resource on the cluster, and we will avoid
+		// raise the issue "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
+			log.Error(err, "Failed to re-fetch webpage")
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Let's add a finalizer. Then, we can define some operations which should
@@ -149,20 +146,21 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 	}
 
-	// Re-fetch the webpage Custom Resource before update the status
-	// so that we have the latest state of the resource on the cluster, and we will avoid
-	// raise the issue "the object has been modified, please apply
-	// your changes to the latest version and try again" which would re-trigger the reconciliation
-	if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
-		log.Error(err, "Failed to re-fetch webpage")
-		return ctrl.Result{}, err
-	}
 	// Check if the Webpage instance is marked to be deleted, which is
 	// indicated by the deletion timestamp being set.
 	isWebpageMarkedToBeDeleted := webpage.GetDeletionTimestamp() != nil
 	if isWebpageMarkedToBeDeleted {
 		if controllerutil.ContainsFinalizer(webpage, webpageFinalizer) {
 			log.Info("Performing Finalizer Operations for Webpage before delete CR")
+
+			// Re-fetch the webpage Custom Resource before update the status
+			// so that we have the latest state of the resource on the cluster, and we will avoid
+			// raise the issue "the object has been modified, please apply
+			// your changes to the latest version and try again" which would re-trigger the reconciliation
+			if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
+				log.Error(err, "Failed to re-fetch webpage")
+				return ctrl.Result{}, err
+			}
 
 			// Let's add here a status "Downgrade" to define that this resource begin its process to be terminated.
 			meta.SetStatusCondition(
@@ -227,6 +225,15 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Check if the deployment already exists, if not create a new one
 	founddep := &appsv1.Deployment{}
+
+	// Re-fetch the webpage Custom Resource before update the status
+	// so that we have the latest state of the resource on the cluster, and we will avoid
+	// raise the issue "the object has been modified, please apply
+	// your changes to the latest version and try again" which would re-trigger the reconciliation
+	if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
+		log.Error(err, "Failed to re-fetch webpage")
+		return ctrl.Result{}, err
+	}
 	err = r.Get(ctx, types.NamespacedName{Name: webpage.Name, Namespace: webpage.Namespace}, founddep)
 	if err != nil && apierrors.IsNotFound(err) {
 		// Define a new deployment
@@ -281,6 +288,15 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	foundsvc := &corev1.Service{}
+
+	// Re-fetch the webpage Custom Resource before update the status
+	// so that we have the latest state of the resource on the cluster, and we will avoid
+	// raise the issue "the object has been modified, please apply
+	// your changes to the latest version and try again" which would re-trigger the reconciliation
+	if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
+		log.Error(err, "Failed to re-fetch webpage")
+		return ctrl.Result{}, err
+	}
 	err = r.Get(ctx, types.NamespacedName{Name: webpage.Name, Namespace: webpage.Namespace}, foundsvc)
 	if err != nil && apierrors.IsNotFound(err) {
 		// Define a new Service
