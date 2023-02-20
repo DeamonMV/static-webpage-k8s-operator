@@ -59,12 +59,6 @@ rules:
 - apiGroups:
   - webpage.daemon.io
   resources:
-  - statics/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - webpage.daemon.io
-  resources:
   - statics/status
   verbs:
   - get
