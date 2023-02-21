@@ -134,6 +134,7 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Error(err, "Failed to re-fetch webpage")
 		return ctrl.Result{}, err
 	}
+
 	err = r.Get(ctx, types.NamespacedName{Name: webpage.Name, Namespace: webpage.Namespace}, founddep)
 	if err != nil && apierrors.IsNotFound(err) {
 		// Define a new deployment
@@ -185,6 +186,53 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Error(err, "Failed to get Deployment")
 		// Let's return the error for the reconciliation be re-trigged again
 		return ctrl.Result{}, err
+	}
+
+	// Update Deployment
+	dep, err := r.deploymentForWebpage(webpage)
+	if err != nil {
+		log.Error(err, "Failed to define new Deployment resource for Webpage")
+
+		// The following implementation will update the status
+		meta.SetStatusCondition(
+			&webpage.Status.Conditions,
+			metav1.Condition{
+				Type:   typeAvailableWebpage,
+				Status: metav1.ConditionFalse, Reason: "Reconciling",
+				Message: fmt.Sprintf(
+					"Failed to create Deployment for the custom resource (%s): (%s)", webpage.Name, err),
+			})
+
+		if err := r.Status().Update(ctx, webpage); err != nil {
+			log.Error(err, "Failed to update Webpage status")
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{}, err
+	}
+	if founddep.Spec.Template.Spec.InitContainers[0].Args[0] != dep.Spec.Template.Spec.InitContainers[0].Args[0] {
+		log.Info("Update Deployment",
+			"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
+
+		// Re-fetch the webpage Custom Resource before update the status
+		// so that we have the latest state of the resource on the cluster, and we will avoid
+		// raise the issue "the object has been modified, please apply
+		// your changes to the latest version and try again" which would re-trigger the reconciliation
+		if err := r.Get(ctx, req.NamespacedName, webpage); err != nil {
+			log.Error(err, "Failed to re-fetch webpage")
+			return ctrl.Result{}, err
+		}
+
+		if err = r.Update(ctx, dep); err != nil {
+			log.Error(err, "Failed to Update Deployment",
+				"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
+			return ctrl.Result{}, err
+		}
+
+		// Deployment created successfully
+		// We will requeue the reconciliation so that we can ensure the state
+		// and move forward for the next operations
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
 	foundsvc := &corev1.Service{}
@@ -269,7 +317,6 @@ func (r *StaticReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *StaticReconciler) deploymentForWebpage(webpage *webpagev1alpha1.Static) (*appsv1.Deployment, error) {
 	ls := labelsForWebpage(webpage.Name, webpage)
 	replicas := webpage.Spec.Size
-
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      webpage.Name,
@@ -364,7 +411,20 @@ func (r *StaticReconciler) deploymentForWebpage(webpage *webpagev1alpha1.Static)
 						Image:           webpage.Spec.StaticSpecGit.Image,
 						Name:            "git",
 						ImagePullPolicy: corev1.PullAlways,
-						Args:            []string{"clone", "--single-branch", "-b" + webpage.Spec.StaticSpecGit.Branch, webpage.Spec.StaticSpecGit.Repository, nginxServeFolder},
+						Command:         []string{"/bin/sh", "-c"},
+						// Ex.
+						// apk add --no-cache git && if ! git clone https://github.com/alpine-docker/git --branch master --single-branch /tmp/fffooo 2>dev/null && [ -d /tmp/fffooo ]; then cd /tmp/fffooo && git pull; fi
+						Args: []string{
+							"apk add --no-cache git && " +
+								"set -x && " +
+								"if ! git clone " + webpage.Spec.StaticSpecGit.Repository +
+								" --branch " + webpage.Spec.StaticSpecGit.Branch +
+								" --single-branch " + nginxServeFolder +
+								" 2>/dev/null && [ -d " + nginxServeFolder + " ] ;" +
+								" then cd " + nginxServeFolder + " && " +
+								" git pull;" +
+								" fi",
+						},
 						VolumeMounts: []corev1.VolumeMount{{
 							Name:      "webpage",
 							ReadOnly:  false,
