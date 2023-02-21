@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,13 +39,15 @@ import (
 	webpagev1alpha1 "github.com/DeamonMV/static-webpage-k8s-operator/api/v1alpha1"
 )
 
-const nginxServeFolder = "/usr/share/nginx/html"
-
 // Definitions to manage status conditions
 const (
 	// typeAvailableWebpage represents the status of the Deployment reconciliation
 	typeAvailableWebpage = "Available"
 	typeUnknownWebpage   = "Unknown"
+	nginxServeFolder     = "/usr/share/nginx"
+	nginxServeFolderLink = "/usr/share/nginx/html"
+	constGitsyncImage    = "registry.k8s.io/git-sync/git-sync:v3.6.4"
+	constNginxImage      = "nginx:1.23.3"
 )
 
 // StaticReconciler reconciles a Static object
@@ -210,7 +213,7 @@ func (r *StaticReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 		return ctrl.Result{}, err
 	}
-	if founddep.Spec.Template.Spec.InitContainers[0].Args[0] != dep.Spec.Template.Spec.InitContainers[0].Args[0] {
+	if founddep.Spec.Template.Spec.Containers[1].Args[0] != dep.Spec.Template.Spec.Containers[1].Args[0] || founddep.Spec.Template.Spec.Containers[1].Args[1] != dep.Spec.Template.Spec.Containers[1].Args[1] || founddep.Spec.Template.Spec.Containers[1].Args[2] != dep.Spec.Template.Spec.Containers[1].Args[2] {
 		log.Info("Update Deployment",
 			"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
 
@@ -316,7 +319,7 @@ func (r *StaticReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // deploymentForWebpage returns a Webpage Deployment object
 func (r *StaticReconciler) deploymentForWebpage(webpage *webpagev1alpha1.Static) (*appsv1.Deployment, error) {
 	ls := labelsForWebpage(webpage.Name, webpage)
-	replicas := webpage.Spec.Size
+	replicas := int32(1)
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      webpage.Name,
@@ -332,73 +335,12 @@ func (r *StaticReconciler) deploymentForWebpage(webpage *webpagev1alpha1.Static)
 					Labels: ls,
 				},
 				Spec: corev1.PodSpec{
-					// TODO(user): Uncomment the following code to configure the nodeAffinity expression
-					// according to the platforms which are supported by your solution. It is considered
-					// best practice to support multiple architectures. build your manager image using the
-					// makefile target docker-buildx. Also, you can use docker manifest inspect <image>
-					// to check what are the platforms supported.
-					// More info: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity
-					//Affinity: &corev1.Affinity{
-					//	NodeAffinity: &corev1.NodeAffinity{
-					//		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-					//			NodeSelectorTerms: []corev1.NodeSelectorTerm{
-					//				{
-					//					MatchExpressions: []corev1.NodeSelectorRequirement{
-					//						{
-					//							Key:      "kubernetes.io/arch",
-					//							Operator: "In",
-					//							Values:   []string{"amd64", "arm64", "ppc64le", "s390x"},
-					//						},
-					//						{
-					//							Key:      "kubernetes.io/os",
-					//							Operator: "In",
-					//							Values:   []string{"linux"},
-					//						},
-					//					},
-					//				},
-					//			},
-					//		},
-					//	},
-					//},
-					// TODO implement flag to enable this, in case if container is capable to run nginx in non-root mode
-					//SecurityContext: &corev1.PodSecurityContext{
-					//	RunAsNonRoot: &[]bool{true}[0],
-					//	// IMPORTANT: seccomProfile was introduced with Kubernetes 1.19
-					//	// If you are looking for to produce solutions to be supported
-					//	// on lower versions you must remove this option.
-					//	SeccompProfile: &corev1.SeccompProfile{
-					//		Type: corev1.SeccompProfileTypeRuntimeDefault,
-					//	},
-					//},
 					Containers: []corev1.Container{{
-						Image:           webpage.Spec.StaticSpecNginx.Image,
+						Image:           constNginxImage,
 						Name:            "nginx",
 						ImagePullPolicy: corev1.PullAlways,
-						// TODO implement flag to enable this, in case if container is capable to run nginx in non-root mode
-						// Ensure restrictive context for the container
-						// More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
-						//SecurityContext: &corev1.SecurityContext{
-						//	// WARNING: Ensure that the image used defines an UserID in the Dockerfile
-						//	// otherwise the Pod will not run and will fail with "container has runAsNonRoot and image has non-numeric user"".
-						//	// If you want your workloads admitted in namespaces enforced with the restricted mode in OpenShift/OKD vendors
-						//	// then, you MUST ensure that the Dockerfile defines a User ID OR you MUST leave the "RunAsNonRoot" and
-						//	// "RunAsUser" fields empty.
-						//	RunAsNonRoot: &[]bool{true}[0],
-						//	// The Webpage image does not use a non-zero numeric user as the default user.
-						//	// Due to RunAsNonRoot field being set to true, we need to force the user in the
-						//	// container to a non-zero numeric user. We do this using the RunAsUser field.
-						//	// However, if you are looking to provide solution for K8s vendors like OpenShift
-						//	// be aware that you cannot run under its restricted-v2 SCC if you set this value.
-						//	RunAsUser:                &[]int64{1001}[0],
-						//	AllowPrivilegeEscalation: &[]bool{false}[0],
-						//	Capabilities: &corev1.Capabilities{
-						//		Drop: []corev1.Capability{
-						//			"ALL",
-						//		},
-						//	},
-						//},
 						Ports: []corev1.ContainerPort{{
-							ContainerPort: webpage.Spec.ContainerPort,
+							ContainerPort: 80,
 							Name:          "webpage",
 						}},
 						VolumeMounts: []corev1.VolumeMount{{
@@ -406,31 +348,28 @@ func (r *StaticReconciler) deploymentForWebpage(webpage *webpagev1alpha1.Static)
 							ReadOnly:  true,
 							MountPath: nginxServeFolder,
 						}},
-					}},
-					InitContainers: []corev1.Container{{
-						Image:           webpage.Spec.StaticSpecGit.Image,
-						Name:            "git",
-						ImagePullPolicy: corev1.PullAlways,
-						Command:         []string{"/bin/sh", "-c"},
-						// Ex.
-						// apk add --no-cache git && if ! git clone https://github.com/alpine-docker/git --branch master --single-branch /tmp/fffooo 2>dev/null && [ -d /tmp/fffooo ]; then cd /tmp/fffooo && git pull; fi
-						Args: []string{
-							"apk add --no-cache git && " +
-								"set -x && " +
-								"if ! git clone " + webpage.Spec.StaticSpecGit.Repository +
-								" --branch " + webpage.Spec.StaticSpecGit.Branch +
-								" --single-branch " + nginxServeFolder +
-								" 2>/dev/null && [ -d " + nginxServeFolder + " ] ;" +
-								" then cd " + nginxServeFolder + " && " +
-								" git pull;" +
-								" fi",
+					},
+						{
+							Image:           constGitsyncImage,
+							Name:            "git-sync",
+							ImagePullPolicy: corev1.PullAlways,
+							Args: []string{
+								"--repo=" + webpage.Spec.Repository,
+								"--branch=" + webpage.Spec.Branch,
+								"--wait=" + strconv.Itoa(webpage.Spec.Wait),
+								"--root=" + nginxServeFolder,
+								"--dest=" + nginxServeFolderLink,
+								"--git-config=safe.directory:/usr/share/nginx",
+								"--submodules=off",
+								"--v=2",
+							},
+							VolumeMounts: []corev1.VolumeMount{{
+								Name:      "webpage",
+								ReadOnly:  false,
+								MountPath: nginxServeFolder,
+							}},
 						},
-						VolumeMounts: []corev1.VolumeMount{{
-							Name:      "webpage",
-							ReadOnly:  false,
-							MountPath: nginxServeFolder,
-						}},
-					}},
+					},
 					Volumes: []corev1.Volume{{
 						Name: "webpage",
 						VolumeSource: corev1.VolumeSource{
@@ -478,7 +417,7 @@ func (r *StaticReconciler) serviceForWebpage(webpage *webpagev1alpha1.Static) (*
 }
 
 func labelsForWebpage(name string, webpage *webpagev1alpha1.Static) map[string]string {
-	image := webpage.Spec.StaticSpecNginx.Image
+	image := constNginxImage
 	imageTag := strings.Split(image, ":")[1]
 
 	return map[string]string{

@@ -36,32 +36,22 @@ import (
 // StaticSpec defines the desired state of Static
 type StaticSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
+	// !!! Important: Run "make" to regenerate code after modifying this file !!!
+	// +operator-sdk:csv:customresourcedefinitions:type=spec
+	Repository string `json:"repository,omitempty"`
+	Branch     string `json:"branch,omitempty"`
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=3
+	// +kubebuilder:validation:Minimum=30
+	// +kubebuilder:validation:Maximum=300
 	// +kubebuilder:validation:ExclusiveMaximum=false
 
 	// Size define the number of Webpage instances
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
-	Size int32 `json:"size,omitempty"`
+	Wait int `json:"wait,omitempty"`
 	// Port defines the port that will be used to init the container with the image
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
-	ContainerPort   int32 `json:"containerPort,omitempty"`
-	StaticSpecNginx `json:"nginx,omitempty"`
-	StaticSpecGit   `json:"git,omitempty"`
-}
-
-type StaticSpecNginx struct {
-	Image string `json:"image,omitempty"`
-}
-
-type StaticSpecGit struct {
-	Image      string `json:"image,omitempty"`
-	Repository string `json:"repository,omitempty"`
-	Branch     string `json:"branch,omitempty"`
+	//ContainerPort   int32 `json:"containerPort,omitempty"`
 }
 
 // StaticStatus defines the observed state of Static
