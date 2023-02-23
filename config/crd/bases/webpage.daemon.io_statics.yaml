@@ -37,6 +37,21 @@ spec:
             properties:
               branch:
                 type: string
+              ingress:
+                description: Port defines the port that will be used to init the container
+                  with the image ContainerPort   int32 `json:"containerPort,omitempty"`
+                properties:
+                  annotation:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  host:
+                    items:
+                      type: string
+                    type: array
+                  tls:
+                    type: boolean
+                type: object
               repository:
                 description: 'INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
                   !!! Important: Run "make" to regenerate code after modifying this

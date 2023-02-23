@@ -52,6 +52,12 @@ type StaticSpec struct {
 	// Port defines the port that will be used to init the container with the image
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
 	//ContainerPort   int32 `json:"containerPort,omitempty"`
+	Ingress StaticSpecIngress `json:"ingress,omitempty"`
+}
+type StaticSpecIngress struct {
+	Annotations map[string]string `json:"annotation,omitempty"`
+	Host        []string          `json:"host,omitempty"`
+	Tls         bool              `json:"tls,omitempty"`
 }
 
 // StaticStatus defines the observed state of Static
