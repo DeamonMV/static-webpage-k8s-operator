@@ -90,10 +90,11 @@ func main() {
 	}
 
 	if err = (&controllers.StaticReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("webpage-controller"),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Static")
+		setupLog.Error(err, "unable to create controller", "controller", "Webpage")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

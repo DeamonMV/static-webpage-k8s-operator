@@ -35,20 +35,32 @@ spec:
           spec:
             description: StaticSpec defines the desired state of Static
             properties:
-              containerPort:
+              branch:
+                type: string
+              ingress:
                 description: Port defines the port that will be used to init the container
-                  with the image
-                format: int32
-                type: integer
-              git:
+                  with the image ContainerPort   int32 `json:"containerPort,omitempty"`
+                properties:
+                  annotation:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  host:
+                    items:
+                      type: string
+                    type: array
+                  tls:
+                    type: boolean
+                type: object
+              repository:
+                description: 'INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+                  !!! Important: Run "make" to regenerate code after modifying this
+                  file !!!'
                 type: string
-              nginx:
-                type: string
-              size:
+              wait:
                 description: Size define the number of Webpage instances
-                format: int32
-                maximum: 3
-                minimum: 1
+                maximum: 300
+                minimum: 30
                 type: integer
             type: object
           status:

@@ -23,26 +23,41 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// spec:
+//	size: 1
+//  containerPort: 80
+//   nginx:
+//     image: nginx:latest
+//     command: nginx
+//   git:
+//     image: git-alpine:latest
+//     branch: master
+
 // StaticSpec defines the desired state of Static
 type StaticSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
+	// !!! Important: Run "make" to regenerate code after modifying this file !!!
+	// +operator-sdk:csv:customresourcedefinitions:type=spec
+	Repository string `json:"repository,omitempty"`
+	Branch     string `json:"branch,omitempty"`
 	// The following markers will use OpenAPI v3 schema to validate the value
 	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=3
+	// +kubebuilder:validation:Minimum=30
+	// +kubebuilder:validation:Maximum=300
 	// +kubebuilder:validation:ExclusiveMaximum=false
 
 	// Size define the number of Webpage instances
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
-	Size  int32  `json:"size,omitempty"`
-	Nginx string `json:"nginx,omitempty"`
-	Git   string `json:"git,omitempty"`
-
+	Wait int `json:"wait,omitempty"`
 	// Port defines the port that will be used to init the container with the image
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
-	ContainerPort int32 `json:"containerPort,omitempty"`
+	//ContainerPort   int32 `json:"containerPort,omitempty"`
+	Ingress StaticSpecIngress `json:"ingress,omitempty"`
+}
+type StaticSpecIngress struct {
+	Annotations map[string]string `json:"annotation,omitempty"`
+	Host        []string          `json:"host,omitempty"`
+	Tls         bool              `json:"tls,omitempty"`
 }
 
 // StaticStatus defines the observed state of Static
